@@ -8,7 +8,10 @@ import Stripe from "stripe";
 import errorMiddleware from "./middlewares/error";
 import { notFound } from "./middlewares/not-found";
 import router from "./routes";
-export const stripe = new Stripe(process.env.STRIPE_KEY as string);
+const { STRIPE_KEY } = process.env;
+export const stripe = new Stripe(STRIPE_KEY!, {
+  apiVersion: "2024-06-20",
+});
 const app: Application = express();
 
 app.use(
@@ -20,13 +23,12 @@ app.use(
 
 connectDB();
 
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const server = http.createServer(app);
 
-app.use("/api/v1/", router);
+app.use("/api/", router);
 
 // Middleware for Errors
 app.use(errorMiddleware);

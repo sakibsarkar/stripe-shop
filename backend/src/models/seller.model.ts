@@ -19,6 +19,11 @@ const sellerSchema = new Schema(
       type: String,
       default: "seller",
     },
+    stripeAccountId: {
+      type: String,
+      default: "",
+    },
+
     shopInfo: {
       type: Object,
       default: {},

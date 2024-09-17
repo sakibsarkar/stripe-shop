@@ -1,15 +1,11 @@
-import Stripe from "stripe";
 import { v4 as uuidv4 } from "uuid";
+import { stripe } from "../app";
 import catchAsyncError from "../middlewares/catchAsyncErrors";
+import Seller from "../models/seller.model";
 import StripeAccount from "../models/stripe.model";
-const { STRIPE_KEY } = process.env;
-const stripe = new Stripe(STRIPE_KEY!, {
-  apiVersion: "2024-06-20",
-});
 
 export const createStripeConnectAccount = catchAsyncError(async (req, res) => {
   const { id } = req.body;
-  console.log("Seller ID:", id);
 
   if (!id) {
     return res.status(400).json({ message: "Seller ID is required" });
@@ -17,15 +13,20 @@ export const createStripeConnectAccount = catchAsyncError(async (req, res) => {
 
   const uid = uuidv4();
 
+  // Check if the seller already has a Stripe account
   const stripeInfo = await StripeAccount.findOne({ sellerId: id });
 
   if (stripeInfo) {
-    console.log("Stripe info found, deleting...");
     await StripeAccount.deleteOne({ sellerId: id });
   }
 
-  const account = await stripe.accounts.create({ type: "express" });
-  console.log("Stripe account created:", account.id);
+  // Create a new Stripe Connect account with necessary capabilities
+  const account = await stripe.accounts.create({
+    type: "express",
+    capabilities: {
+      transfers: { requested: true }, // Request the transfers capability
+    },
+  });
 
   const accountLink = await stripe.accountLinks.create({
     account: account.id,
@@ -33,8 +34,8 @@ export const createStripeConnectAccount = catchAsyncError(async (req, res) => {
     return_url: `http://localhost:5173/success?activeCode=${uid}`,
     type: "account_onboarding",
   });
-  console.log("Stripe account link created:", accountLink.url);
 
+  // Save Stripe account info in the database
   await StripeAccount.create({
     sellerId: id,
     connectId: account.id,
@@ -43,6 +44,7 @@ export const createStripeConnectAccount = catchAsyncError(async (req, res) => {
 
   res.status(201).json({ url: accountLink.url });
 });
+
 
 export const createPayment = catchAsyncError(async (req, res) => {
   const price = 500;
@@ -80,4 +82,33 @@ export const paymentRequestConfirm = catchAsyncError(async (req, res) => {
     console.error("Error confirming payment request:", error);
     res.status(500).json({ message: "Internal server error" });
   }
+});
+
+// transfer ammmount to the sller account
+export const transferAmmount = catchAsyncError(async (req, res) => {
+  const { sellerId, amount } = req.body;
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ message: "Invalid amount" });
+  }
+
+  // Find the seller by their ID
+  const seller = await Seller.findById(sellerId);
+
+  if (!seller || !seller.stripeAccountId) {
+    return res
+      .status(404)
+      .json({ message: "Seller not found or no Stripe account linked" });
+  }
+
+  // Create a transfer to the seller's Stripe Connect account
+  const transfer = await stripe.transfers.create({
+    amount: amount * 100, // Amount in cents
+    currency: "usd",
+    destination: seller.stripeAccountId, // Seller's connected Stripe account
+  });
+
+  res
+    .status(200)
+    .json({ message: "Amount added to seller's Stripe account", transfer });
 });
